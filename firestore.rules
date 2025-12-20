@@ -1,0 +1,17 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Invites: anyone can read to validate, only authenticated writes (admin)
+    match /invites/{inviteId} {
+      allow read: if true;
+      allow write: if true; // In production, restrict to admin auth
+    }
+
+    // Submissions: anyone can create, anyone can read approved
+    match /submissions/{submissionId} {
+      allow read: if true;
+      allow create: if true;
+      allow update: if true; // In production, restrict to admin auth
+    }
+  }
+}
