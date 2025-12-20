@@ -425,37 +425,58 @@ function App() {
   const [selectedPhoto, setSelectedPhoto] = useState(null)
   const { photos: approvedPhotos, loading } = useApprovedPhotos()
 
-  // Convert approved photos to display format
-  const displayPhotos = useMemo(() => {
-    if (approvedPhotos.length === 0) {
-      return placeholderPhotos
+  // Star photo - check for assigned star first, then use first unassigned
+  const starPhoto = useMemo(() => {
+    // Look for photo assigned to star position
+    const assignedStar = approvedPhotos.find(p => p.position === 'star')
+    if (assignedStar) {
+      return { id: assignedStar.id, src: assignedStar.imageUrl, alt: assignedStar.name }
     }
 
-    // Map approved photos to display format
-    const approved = approvedPhotos.map(p => ({
-      id: p.id,
-      src: p.imageUrl,
-      alt: p.name
-    }))
-
-    // Fill remaining slots with placeholders if needed
-    const totalSlots = ornamentPositions.length
-    if (approved.length >= totalSlots) {
-      return approved.slice(0, totalSlots)
+    // Use first photo without a specific position
+    const unassigned = approvedPhotos.filter(p => !p.position)
+    if (unassigned.length > 0) {
+      return { id: unassigned[0].id, src: unassigned[0].imageUrl, alt: unassigned[0].name }
     }
 
-    // Pad with placeholders
-    const remaining = placeholderPhotos.slice(approved.length, totalSlots)
-    return [...approved, ...remaining]
+    return defaultStarPhoto
   }, [approvedPhotos])
 
-  // Star uses first approved photo or default
-  const starPhoto = useMemo(() => {
-    if (approvedPhotos.length > 0) {
-      const first = approvedPhotos[0]
-      return { id: first.id, src: first.imageUrl, alt: first.name }
+  // Convert approved photos to display format with position assignments
+  const displayPhotos = useMemo(() => {
+    const totalSlots = ornamentPositions.length
+    const result = new Array(totalSlots).fill(null)
+
+    // First, place photos with specific position assignments
+    approvedPhotos.forEach(p => {
+      if (p.position && p.position !== 'star') {
+        const posIndex = parseInt(p.position, 10) - 1 // Convert 1-based to 0-based
+        if (posIndex >= 0 && posIndex < totalSlots) {
+          result[posIndex] = { id: p.id, src: p.imageUrl, alt: p.name }
+        }
+      }
+    })
+
+    // Get unassigned approved photos (excluding star-assigned)
+    const unassignedPhotos = approvedPhotos
+      .filter(p => !p.position || p.position === '')
+      .map(p => ({ id: p.id, src: p.imageUrl, alt: p.name }))
+
+    // Fill empty slots with unassigned photos
+    let unassignedIndex = 0
+    for (let i = 0; i < totalSlots; i++) {
+      if (result[i] === null) {
+        if (unassignedIndex < unassignedPhotos.length) {
+          result[i] = unassignedPhotos[unassignedIndex]
+          unassignedIndex++
+        } else {
+          // Use placeholder
+          result[i] = placeholderPhotos[i]
+        }
+      }
     }
-    return defaultStarPhoto
+
+    return result
   }, [approvedPhotos])
 
   return (

@@ -166,6 +166,7 @@ export default function Submit() {
       // Mark invite as used
       await updateDoc(doc(db, 'invites', invite.id), {
         usedBy: name.trim(),
+        usedByPhone: phone.trim(),
         usedAt: serverTimestamp()
       })
 

@@ -11,6 +11,24 @@ function generateInviteCode() {
   return code
 }
 
+const POSITION_OPTIONS = [
+  { value: '', label: 'Auto' },
+  { value: 'star', label: 'Star' },
+  { value: '1', label: 'Ornament 1 (Top)' },
+  { value: '2', label: 'Ornament 2' },
+  { value: '3', label: 'Ornament 3' },
+  { value: '4', label: 'Ornament 4' },
+  { value: '5', label: 'Ornament 5' },
+  { value: '6', label: 'Ornament 6' },
+  { value: '7', label: 'Ornament 7' },
+  { value: '8', label: 'Ornament 8' },
+  { value: '9', label: 'Ornament 9' },
+  { value: '10', label: 'Ornament 10' },
+  { value: '11', label: 'Ornament 11' },
+  { value: '12', label: 'Ornament 12' },
+  { value: '13', label: 'Ornament 13' },
+]
+
 export default function Admin() {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [password, setPassword] = useState('')
@@ -69,9 +87,10 @@ export default function Admin() {
     })
   }
 
-  const handleApprove = async (submissionId) => {
+  const handleApprove = async (submissionId, position = '') => {
     await updateDoc(doc(db, 'submissions', submissionId), {
       status: 'approved',
+      position: position || null,
       reviewedAt: serverTimestamp()
     })
   }
@@ -79,7 +98,24 @@ export default function Admin() {
   const handleReject = async (submissionId) => {
     await updateDoc(doc(db, 'submissions', submissionId), {
       status: 'rejected',
+      position: null,
       reviewedAt: serverTimestamp()
+    })
+  }
+
+  const handleRevoke = async (submissionId) => {
+    if (confirm('Are you sure you want to revoke this approval? The photo will be removed from the tree.')) {
+      await updateDoc(doc(db, 'submissions', submissionId), {
+        status: 'rejected',
+        position: null,
+        reviewedAt: serverTimestamp()
+      })
+    }
+  }
+
+  const handlePositionChange = async (submissionId, newPosition) => {
+    await updateDoc(doc(db, 'submissions', submissionId), {
+      position: newPosition || null
     })
   }
 
@@ -91,7 +127,8 @@ export default function Admin() {
   }
 
   const pendingSubmissions = submissions.filter(s => s.status === 'pending')
-  const reviewedSubmissions = submissions.filter(s => s.status !== 'pending')
+  const approvedSubmissions = submissions.filter(s => s.status === 'approved')
+  const rejectedSubmissions = submissions.filter(s => s.status === 'rejected')
 
   // Styles
   const containerStyle = {
@@ -117,6 +154,15 @@ export default function Admin() {
     transition: 'opacity 0.2s'
   }
 
+  const smallButtonStyle = {
+    padding: '6px 12px',
+    border: 'none',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    fontWeight: 'bold',
+    fontSize: '0.85rem'
+  }
+
   const tabStyle = (active) => ({
     padding: '12px 24px',
     border: 'none',
@@ -126,6 +172,14 @@ export default function Admin() {
     fontWeight: 'bold',
     borderRadius: '6px 6px 0 0'
   })
+
+  const selectStyle = {
+    padding: '6px 10px',
+    borderRadius: '4px',
+    border: '1px solid #ccc',
+    fontSize: '0.85rem',
+    background: '#fff'
+  }
 
   if (!isAuthenticated) {
     return (
@@ -209,7 +263,7 @@ export default function Admin() {
                     alignItems: 'center',
                     justifyContent: 'space-between',
                     padding: '12px',
-                    background: '#f9f9f9',
+                    background: invite.usedAt ? '#f0f0f0' : '#f9f9f9',
                     borderRadius: '6px'
                   }}
                 >
@@ -217,7 +271,7 @@ export default function Admin() {
                     <code style={{ fontSize: '1.1rem', fontWeight: 'bold' }}>{invite.code}</code>
                     {invite.usedBy && (
                       <span style={{ marginLeft: '12px', color: '#666', fontSize: '0.9rem' }}>
-                        Used by {invite.usedBy}
+                        Used by {invite.usedBy} {invite.usedByPhone && `(${invite.usedByPhone})`}
                       </span>
                     )}
                   </div>
@@ -241,15 +295,19 @@ export default function Admin() {
 
         {/* Submissions Section */}
         <div style={cardStyle}>
-          <div style={{ marginBottom: '16px' }}>
+          <div style={{ marginBottom: '16px', display: 'flex', gap: '4px' }}>
             <button style={tabStyle(activeTab === 'pending')} onClick={() => setActiveTab('pending')}>
               Pending ({pendingSubmissions.length})
             </button>
-            <button style={tabStyle(activeTab === 'reviewed')} onClick={() => setActiveTab('reviewed')}>
-              Reviewed ({reviewedSubmissions.length})
+            <button style={tabStyle(activeTab === 'approved')} onClick={() => setActiveTab('approved')}>
+              Approved ({approvedSubmissions.length})
+            </button>
+            <button style={tabStyle(activeTab === 'rejected')} onClick={() => setActiveTab('rejected')}>
+              Rejected ({rejectedSubmissions.length})
             </button>
           </div>
 
+          {/* Pending Tab */}
           {activeTab === 'pending' && (
             pendingSubmissions.length === 0 ? (
               <p style={{ color: '#666', textAlign: 'center', padding: '40px' }}>
@@ -258,10 +316,32 @@ export default function Admin() {
             ) : (
               <div style={{ display: 'grid', gap: '16px', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}>
                 {pendingSubmissions.map(submission => (
+                  <PendingCard
+                    key={submission.id}
+                    submission={submission}
+                    onApprove={handleApprove}
+                    onReject={handleReject}
+                    buttonStyle={buttonStyle}
+                    selectStyle={selectStyle}
+                  />
+                ))}
+              </div>
+            )
+          )}
+
+          {/* Approved Tab */}
+          {activeTab === 'approved' && (
+            approvedSubmissions.length === 0 ? (
+              <p style={{ color: '#666', textAlign: 'center', padding: '40px' }}>
+                No approved submissions yet
+              </p>
+            ) : (
+              <div style={{ display: 'grid', gap: '16px', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}>
+                {approvedSubmissions.map(submission => (
                   <div
                     key={submission.id}
                     style={{
-                      border: '2px solid #ffc107',
+                      border: '2px solid #4caf50',
                       borderRadius: '8px',
                       overflow: 'hidden',
                       background: '#fff'
@@ -274,21 +354,25 @@ export default function Admin() {
                     />
                     <div style={{ padding: '12px' }}>
                       <p style={{ margin: '0 0 4px', fontWeight: 'bold' }}>{submission.name}</p>
-                      <p style={{ margin: '0 0 12px', color: '#666', fontSize: '0.9rem' }}>{submission.phone}</p>
-                      <div style={{ display: 'flex', gap: '8px' }}>
-                        <button
-                          style={{ ...buttonStyle, flex: 1, background: '#4caf50', color: '#fff' }}
-                          onClick={() => handleApprove(submission.id)}
+                      <p style={{ margin: '0 0 8px', color: '#666', fontSize: '0.9rem' }}>{submission.phone}</p>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                        <label style={{ fontSize: '0.85rem', color: '#666' }}>Position:</label>
+                        <select
+                          value={submission.position || ''}
+                          onChange={(e) => handlePositionChange(submission.id, e.target.value)}
+                          style={selectStyle}
                         >
-                          Approve
-                        </button>
-                        <button
-                          style={{ ...buttonStyle, flex: 1, background: '#f44336', color: '#fff' }}
-                          onClick={() => handleReject(submission.id)}
-                        >
-                          Reject
-                        </button>
+                          {POSITION_OPTIONS.map(opt => (
+                            <option key={opt.value} value={opt.value}>{opt.label}</option>
+                          ))}
+                        </select>
                       </div>
+                      <button
+                        style={{ ...smallButtonStyle, background: '#f44336', color: '#fff', width: '100%' }}
+                        onClick={() => handleRevoke(submission.id)}
+                      >
+                        Revoke Approval
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -296,22 +380,23 @@ export default function Admin() {
             )
           )}
 
-          {activeTab === 'reviewed' && (
-            reviewedSubmissions.length === 0 ? (
+          {/* Rejected Tab */}
+          {activeTab === 'rejected' && (
+            rejectedSubmissions.length === 0 ? (
               <p style={{ color: '#666', textAlign: 'center', padding: '40px' }}>
-                No reviewed submissions yet
+                No rejected submissions
               </p>
             ) : (
               <div style={{ display: 'grid', gap: '16px', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}>
-                {reviewedSubmissions.map(submission => (
+                {rejectedSubmissions.map(submission => (
                   <div
                     key={submission.id}
                     style={{
-                      border: `2px solid ${submission.status === 'approved' ? '#4caf50' : '#f44336'}`,
+                      border: '2px solid #f44336',
                       borderRadius: '8px',
                       overflow: 'hidden',
                       background: '#fff',
-                      opacity: submission.status === 'rejected' ? 0.6 : 1
+                      opacity: 0.7
                     }}
                   >
                     <img
@@ -321,8 +406,9 @@ export default function Admin() {
                     />
                     <div style={{ padding: '12px' }}>
                       <p style={{ margin: '0 0 4px', fontWeight: 'bold' }}>{submission.name}</p>
-                      <p style={{ margin: '0', color: '#666', fontSize: '0.9rem' }}>
-                        {submission.status === 'approved' ? 'Approved' : 'Rejected'}
+                      <p style={{ margin: '0 0 8px', color: '#666', fontSize: '0.9rem' }}>{submission.phone}</p>
+                      <p style={{ margin: '0', color: '#f44336', fontSize: '0.85rem', fontWeight: 'bold' }}>
+                        Rejected
                       </p>
                     </div>
                   </div>
@@ -330,6 +416,58 @@ export default function Admin() {
               </div>
             )
           )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Separate component for pending cards with position selection
+function PendingCard({ submission, onApprove, onReject, buttonStyle, selectStyle }) {
+  const [selectedPosition, setSelectedPosition] = useState('')
+
+  return (
+    <div
+      style={{
+        border: '2px solid #ffc107',
+        borderRadius: '8px',
+        overflow: 'hidden',
+        background: '#fff'
+      }}
+    >
+      <img
+        src={submission.imageUrl}
+        alt={submission.name}
+        style={{ width: '100%', height: '200px', objectFit: 'cover' }}
+      />
+      <div style={{ padding: '12px' }}>
+        <p style={{ margin: '0 0 4px', fontWeight: 'bold' }}>{submission.name}</p>
+        <p style={{ margin: '0 0 8px', color: '#666', fontSize: '0.9rem' }}>{submission.phone}</p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+          <label style={{ fontSize: '0.85rem', color: '#666' }}>Position:</label>
+          <select
+            value={selectedPosition}
+            onChange={(e) => setSelectedPosition(e.target.value)}
+            style={selectStyle}
+          >
+            {POSITION_OPTIONS.map(opt => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+        </div>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button
+            style={{ ...buttonStyle, flex: 1, background: '#4caf50', color: '#fff' }}
+            onClick={() => onApprove(submission.id, selectedPosition)}
+          >
+            Approve
+          </button>
+          <button
+            style={{ ...buttonStyle, flex: 1, background: '#f44336', color: '#fff' }}
+            onClick={() => onReject(submission.id)}
+          >
+            Deny
+          </button>
         </div>
       </div>
     </div>
