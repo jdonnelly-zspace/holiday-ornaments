@@ -96,22 +96,29 @@ export default function Admin() {
 
   const getInviteStatus = (invite) => {
     const now = Date.now()
-    const expiresAt = invite.expiresAt?.toDate?.()?.getTime() || 0
+    const expiresAtDate = invite.expiresAt?.toDate?.()
+    const expiresAt = expiresAtDate?.getTime() || 0
     const isExpired = expiresAt > 0 && now > expiresAt
     const useCount = invite.useCount || 0
     const maxUses = invite.maxUses || 1
     const isFullyUsed = useCount >= maxUses
 
+    // Format expiration time
+    const formatTime = (date) => {
+      if (!date) return ''
+      return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+    }
+
     // Legacy invites (no expiresAt) - check usedAt
     if (!invite.expiresAt && invite.usedAt) {
-      return { isValid: false, status: 'Used', color: '#999' }
+      return { isValid: false, status: 'Used', color: '#999', expiresTime: '' }
     }
 
     if (isExpired) {
-      return { isValid: false, status: 'Expired', color: '#f44336' }
+      return { isValid: false, status: 'Expired', color: '#f44336', expiresTime: formatTime(expiresAtDate) }
     }
     if (isFullyUsed) {
-      return { isValid: false, status: `Used (${useCount}/${maxUses})`, color: '#999' }
+      return { isValid: false, status: `Used (${useCount}/${maxUses})`, color: '#999', expiresTime: formatTime(expiresAtDate) }
     }
 
     // Calculate time remaining
@@ -119,7 +126,8 @@ export default function Admin() {
     return {
       isValid: true,
       status: `${useCount}/${maxUses} used · ${minutesLeft}m left`,
-      color: '#4caf50'
+      color: '#4caf50',
+      expiresTime: formatTime(expiresAtDate)
     }
   }
 
@@ -312,6 +320,11 @@ export default function Admin() {
                         <span style={{ fontSize: '0.8rem', color: status.color, fontWeight: 'bold' }}>
                           {status.status}
                         </span>
+                        {status.expiresTime && (
+                          <span style={{ fontSize: '0.8rem', color: '#666' }}>
+                            (expires {status.expiresTime})
+                          </span>
+                        )}
                       </div>
                       {invite.usedBy && (
                         <span style={{ color: '#666', fontSize: '0.85rem' }}>
