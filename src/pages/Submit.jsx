@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
-import { collection, query, where, getDocs, addDoc, updateDoc, doc, serverTimestamp } from 'firebase/firestore'
+import { collection, query, where, getDocs, addDoc, updateDoc, doc, serverTimestamp, increment } from 'firebase/firestore'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { db, storage } from '../lib/firebase'
 import ReactCrop, { centerCrop, makeAspectCrop } from 'react-image-crop'
@@ -28,6 +28,8 @@ export default function Submit() {
   const [crop, setCrop] = useState()
   const [completedCrop, setCompletedCrop] = useState()
   const [error, setError] = useState('')
+  const [remainingUses, setRemainingUses] = useState(0)
+  const [submissionCount, setSubmissionCount] = useState(0)
 
   const imgRef = useRef(null)
   const canvasRef = useRef(null)
@@ -57,10 +59,33 @@ export default function Submit() {
         const inviteDoc = snapshot.docs[0]
         const inviteData = { id: inviteDoc.id, ...inviteDoc.data() }
 
-        if (inviteData.usedAt) {
-          setError('This invite has already been used')
-          setStep('error')
-          return
+        // Check expiration (for new invites with expiresAt)
+        if (inviteData.expiresAt) {
+          const expiresAt = inviteData.expiresAt.toDate?.() || new Date(inviteData.expiresAt)
+          if (Date.now() > expiresAt.getTime()) {
+            setError('This invite link has expired')
+            setStep('error')
+            return
+          }
+
+          // Check max uses
+          const useCount = inviteData.useCount || 0
+          const maxUses = inviteData.maxUses || 3
+          if (useCount >= maxUses) {
+            setError('This invite has reached its maximum number of uses')
+            setStep('error')
+            return
+          }
+
+          setRemainingUses(maxUses - useCount)
+        } else {
+          // Legacy invite - check usedAt
+          if (inviteData.usedAt) {
+            setError('This invite has already been used')
+            setStep('error')
+            return
+          }
+          setRemainingUses(1)
         }
 
         setInvite(inviteData)
@@ -163,13 +188,17 @@ export default function Submit() {
         createdAt: serverTimestamp()
       })
 
-      // Mark invite as used
+      // Update invite usage
       await updateDoc(doc(db, 'invites', invite.id), {
         usedBy: name.trim(),
         usedByPhone: phone.trim(),
-        usedAt: serverTimestamp()
+        useCount: increment(1),
+        lastUsedAt: serverTimestamp()
       })
 
+      // Update local state
+      setRemainingUses(prev => prev - 1)
+      setSubmissionCount(prev => prev + 1)
       setStep('success')
     } catch (err) {
       console.error('Error submitting photo:', err)
@@ -269,6 +298,15 @@ export default function Submit() {
   }
 
   if (step === 'success') {
+    const resetForNewSubmission = () => {
+      setSelectedFile(null)
+      setImgSrc('')
+      setCrop(undefined)
+      setCompletedCrop(undefined)
+      setError('')
+      setStep('form')
+    }
+
     return (
       <div style={containerStyle}>
         <div style={cardStyle}>
@@ -276,9 +314,24 @@ export default function Submit() {
           <p style={subtitleStyle}>
             Your photo has been submitted for review. Once approved, it will appear on the holiday tree!
           </p>
-          <button style={buttonStyle} onClick={() => navigate('/')}>
-            View the Tree
-          </button>
+          {submissionCount > 0 && (
+            <p style={{ textAlign: 'center', color: '#666', marginBottom: '16px', fontSize: '0.9rem' }}>
+              You've submitted {submissionCount} photo{submissionCount > 1 ? 's' : ''} so far.
+            </p>
+          )}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {remainingUses > 0 && (
+              <button style={buttonStyle} onClick={resetForNewSubmission}>
+                Submit Another Photo ({remainingUses} remaining)
+              </button>
+            )}
+            <button
+              style={{ ...buttonStyle, background: remainingUses > 0 ? '#666' : '#c41e3a' }}
+              onClick={() => navigate('/')}
+            >
+              View the Tree
+            </button>
+          </div>
         </div>
       </div>
     )
@@ -357,6 +410,11 @@ export default function Submit() {
       <div style={cardStyle}>
         <h1 style={titleStyle}>Share a Holiday Memory</h1>
         <p style={subtitleStyle}>Upload a photo to appear on our holiday tree!</p>
+        {remainingUses > 0 && (
+          <p style={{ textAlign: 'center', color: '#1a472a', marginBottom: '16px', fontSize: '0.9rem', fontWeight: 'bold' }}>
+            You can submit up to {remainingUses} photo{remainingUses > 1 ? 's' : ''} with this link.
+          </p>
+        )}
 
         {error && (
           <p style={{ color: '#c41e3a', textAlign: 'center', marginBottom: '16px' }}>{error}</p>

@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react'
-import { collection, query, orderBy, onSnapshot, addDoc, updateDoc, doc, serverTimestamp } from 'firebase/firestore'
+import { collection, query, orderBy, onSnapshot, addDoc, updateDoc, doc, serverTimestamp, Timestamp } from 'firebase/firestore'
 import { db } from '../lib/firebase'
+
+const INVITE_DURATION_MINUTES = 10
+const MAX_USES_PER_INVITE = 3
 
 function generateInviteCode() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
@@ -81,10 +84,43 @@ export default function Admin() {
 
   const createInvite = async () => {
     const code = generateInviteCode()
+    const expiresAt = Timestamp.fromDate(new Date(Date.now() + INVITE_DURATION_MINUTES * 60 * 1000))
     await addDoc(collection(db, 'invites'), {
       code,
-      createdAt: serverTimestamp()
+      createdAt: serverTimestamp(),
+      expiresAt,
+      maxUses: MAX_USES_PER_INVITE,
+      useCount: 0
     })
+  }
+
+  const getInviteStatus = (invite) => {
+    const now = Date.now()
+    const expiresAt = invite.expiresAt?.toDate?.()?.getTime() || 0
+    const isExpired = expiresAt > 0 && now > expiresAt
+    const useCount = invite.useCount || 0
+    const maxUses = invite.maxUses || 1
+    const isFullyUsed = useCount >= maxUses
+
+    // Legacy invites (no expiresAt) - check usedAt
+    if (!invite.expiresAt && invite.usedAt) {
+      return { isValid: false, status: 'Used', color: '#999' }
+    }
+
+    if (isExpired) {
+      return { isValid: false, status: 'Expired', color: '#f44336' }
+    }
+    if (isFullyUsed) {
+      return { isValid: false, status: `Used (${useCount}/${maxUses})`, color: '#999' }
+    }
+
+    // Calculate time remaining
+    const minutesLeft = Math.ceil((expiresAt - now) / 60000)
+    return {
+      isValid: true,
+      status: `${useCount}/${maxUses} used · ${minutesLeft}m left`,
+      color: '#4caf50'
+    }
   }
 
   const handleApprove = async (submissionId, position = '') => {
@@ -255,40 +291,49 @@ export default function Admin() {
             <p style={{ color: '#666' }}>No invites created yet</p>
           ) : (
             <div style={{ display: 'grid', gap: '8px' }}>
-              {invites.map(invite => (
-                <div
-                  key={invite.id}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '12px',
-                    background: invite.usedAt ? '#f0f0f0' : '#f9f9f9',
-                    borderRadius: '6px'
-                  }}
-                >
-                  <div>
-                    <code style={{ fontSize: '1.1rem', fontWeight: 'bold' }}>{invite.code}</code>
-                    {invite.usedBy && (
-                      <span style={{ marginLeft: '12px', color: '#666', fontSize: '0.9rem' }}>
-                        Used by {invite.usedBy} {invite.usedByPhone && `(${invite.usedByPhone})`}
-                      </span>
-                    )}
-                  </div>
-                  <button
+              {invites.map(invite => {
+                const status = getInviteStatus(invite)
+                return (
+                  <div
+                    key={invite.id}
                     style={{
-                      ...buttonStyle,
-                      background: copiedId === invite.code ? '#4caf50' : '#2196f3',
-                      color: '#fff',
-                      opacity: invite.usedAt ? 0.5 : 1
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '12px',
+                      background: status.isValid ? '#f9f9f9' : '#f0f0f0',
+                      borderRadius: '6px',
+                      opacity: status.isValid ? 1 : 0.7
                     }}
-                    onClick={() => copyInviteLink(invite.code)}
-                    disabled={invite.usedAt}
                   >
-                    {copiedId === invite.code ? 'Copied!' : 'Copy Link'}
-                  </button>
-                </div>
-              ))}
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '4px' }}>
+                        <code style={{ fontSize: '1.1rem', fontWeight: 'bold' }}>{invite.code}</code>
+                        <span style={{ fontSize: '0.8rem', color: status.color, fontWeight: 'bold' }}>
+                          {status.status}
+                        </span>
+                      </div>
+                      {invite.usedBy && (
+                        <span style={{ color: '#666', fontSize: '0.85rem' }}>
+                          Last used by {invite.usedBy} {invite.usedByPhone && `(${invite.usedByPhone})`}
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      style={{
+                        ...buttonStyle,
+                        background: copiedId === invite.code ? '#4caf50' : '#2196f3',
+                        color: '#fff',
+                        opacity: status.isValid ? 1 : 0.5
+                      }}
+                      onClick={() => copyInviteLink(invite.code)}
+                      disabled={!status.isValid}
+                    >
+                      {copiedId === invite.code ? 'Copied!' : 'Copy Link'}
+                    </button>
+                  </div>
+                )
+              })}
             </div>
           )}
         </div>
